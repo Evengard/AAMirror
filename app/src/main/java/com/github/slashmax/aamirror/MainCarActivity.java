@@ -43,10 +43,6 @@ import com.google.android.apps.auto.sdk.CarActivity;
 import com.google.android.apps.auto.sdk.CarUiController;
 import com.google.android.apps.auto.sdk.DayNightStyle;
 
-import java.util.concurrent.Executor;
-
-import eu.chainfire.libsuperuser.Shell;
-
 import static android.content.Intent.ACTION_SCREEN_OFF;
 import static android.content.Intent.ACTION_SCREEN_ON;
 import static android.content.Intent.ACTION_USER_PRESENT;
@@ -98,11 +94,7 @@ public class MainCarActivity extends CarActivity
     private boolean m_ScreenResized;
     private boolean m_HasRoot;
     private MinitouchDaemon m_MinitouchDaemon;
-    private MinitouchSocket m_MinitouchSocket;
     private MinitouchAsyncTask m_MinitouchTask;
-
-    private ShellDirectExecutor m_ShellExecutor;
-    private static Shell.Interactive m_Shell;
 
     private UnlockReceiver m_UnlockReceiver;
     private Handler m_RequestHandler;
@@ -135,23 +127,6 @@ public class MainCarActivity extends CarActivity
         protected Void doInBackground(Void... voids) {
             Log.d(TAG, "MinitouchTask.doInBackground");
             m_MinitouchDaemon.start();
-            return null;
-        }
-    }
-
-    private class ShellDirectExecutor implements Executor {
-        public void execute(Runnable r) {
-            new Thread(r).start();
-        }
-    }
-
-    private static class ShellAsyncTask extends AsyncTask<String, Void, Void> {
-        @Override
-        protected Void doInBackground(String... params) {
-            Log.d(TAG, "doInBackground");
-            if (m_Shell != null) {
-                m_Shell.addCommand(params[0]);
-            }
             return null;
         }
     }
@@ -237,9 +212,7 @@ public class MainCarActivity extends CarActivity
         m_AppsAction = ACTION_APP_LAUNCH;
 
         m_MinitouchDaemon = new MinitouchDaemon(this);
-        m_MinitouchSocket = new MinitouchSocket();
         m_MinitouchTask = new MinitouchAsyncTask();
-        m_ShellExecutor = new ShellDirectExecutor();
 
         m_UnlockReceiver = new UnlockReceiver();
         m_RequestHandler = new Handler(this);
@@ -270,10 +243,9 @@ public class MainCarActivity extends CarActivity
         UpdateTouchTransformations(true);
 
         m_ScreenResized = false;
-        m_HasRoot = Shell.SU.available();
+        m_HasRoot = eu.chainfire.libsuperuser.Shell.SU.available();
         if (m_HasRoot) {
             m_MinitouchTask.execute();
-            m_Shell = new Shell.Builder().useSU().open();
         }
 
         m_Car = Car.createCar(this, new CarConnectionCallback() {
@@ -306,13 +278,11 @@ public class MainCarActivity extends CarActivity
         ResetScreenSize();
         stopOrientationService();
         ResetImmersiveMode();
-        m_MinitouchSocket.disconnect();
+        MinitouchSocket minitouchSocket = MinitouchSocket.getInstance();
+        minitouchSocket.disconnect();
         if (m_HasRoot) {
-            m_MinitouchDaemon.stop(m_MinitouchSocket.getPid());
+            m_MinitouchDaemon.stop(minitouchSocket.getPid());
             m_MinitouchTask.cancel(true);
-        }
-        if (m_Shell != null) {
-            m_Shell.close();
         }
 
         if (m_Car.isConnected()) {
@@ -322,15 +292,15 @@ public class MainCarActivity extends CarActivity
     }
 
     private void restartMinitouchDaemon() {
-        if (m_MinitouchDaemon != null && m_MinitouchSocket != null) {
-            m_MinitouchSocket.disconnect();
+        MinitouchSocket minitouchSocket = MinitouchSocket.getInstance();
+        minitouchSocket.disconnect();
+        if (m_MinitouchDaemon != null) {
             if (m_HasRoot) {
-                m_MinitouchDaemon.stop(m_MinitouchSocket.getPid());
+                m_MinitouchDaemon.stop(minitouchSocket.getPid());
                 m_MinitouchTask.cancel(true);
             }
         }
         m_MinitouchDaemon = new MinitouchDaemon(this);
-        m_MinitouchSocket = new MinitouchSocket();
         m_MinitouchTask = new MinitouchAsyncTask();
         if (m_HasRoot) {
             m_MinitouchTask.execute();
@@ -812,7 +782,7 @@ public class MainCarActivity extends CarActivity
     private void GenerateKeyEvent(int keyCode, boolean longPress) {
         Log.d(TAG, "GenerateKeyEvent");
 
-        shellExec("input keyevent " + (longPress ? "--longpress " : "") + keyCode);
+        Shell.exec("input keyevent " + (longPress ? "--longpress " : "") + keyCode);
     }
 
     private void SetScreenSize() {
@@ -833,24 +803,24 @@ public class MainCarActivity extends CarActivity
         if (!m_ScreenResized) {
             Log.d(TAG, "SetScreenSize: " + width + " x " + height);
             m_ScreenResized = true;
-            shellExec("wm size " + width + "x" + height);
+            Shell.exec("wm size " + width + "x" + height);
         }
     }
 
     private void ResetScreenSize() {
         m_ScreenResized = false;
-        shellExec("wm size reset");
+        Shell.exec("wm size reset");
     }
 
     private void SetImmersiveMode() {
         String immersiveMode = getDefaultSharedPreferences("immersive_mode", "");
         if (immersiveMode.contains("immersive")) {
-            shellExec("settings put global policy_control " + immersiveMode);
+            Shell.exec("settings put global policy_control " + immersiveMode);
         }
     }
 
     private void ResetImmersiveMode() {
-        shellExec("settings put global policy_control none*");
+        Shell.exec("settings put global policy_control none*");
     }
 
     private void startScreenCapture() {
@@ -929,26 +899,27 @@ public class MainCarActivity extends CarActivity
         m_ProjectionOffsetY = (SurfaceHeight - m_ProjectionHeight) / 2.0;
 
         if (m_ScreenRotation == ROTATION_0 || m_ScreenRotation == ROTATION_180) {
-            m_MinitouchSocket.UpdateTouchTransformations(m_ScreenWidth, m_ScreenHeight, CarApplication.DisplaySize);
+            MinitouchSocket.getInstance().updateTouchTransformations(m_ScreenWidth, m_ScreenHeight, CarApplication.DisplaySize);
         } else {
-            m_MinitouchSocket.UpdateTouchTransformations(m_ScreenHeight, m_ScreenWidth, CarApplication.DisplaySize);
+            MinitouchSocket.getInstance().updateTouchTransformations(m_ScreenHeight, m_ScreenWidth, CarApplication.DisplaySize);
         }
     }
 
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        if (m_MinitouchSocket != null && event != null) {
-            if (!m_MinitouchSocket.isConnected()) {
-                if (!m_MinitouchSocket.connect(true)) {
+        if (event != null) {
+            MinitouchSocket minitouchSocket = MinitouchSocket.getInstance();
+            if (!minitouchSocket.isConnected()) {
+                if (!minitouchSocket.connect(true)) {
                     this.restartMinitouchDaemon();
-                    m_MinitouchSocket.connect(true);
+                    minitouchSocket.connect(true);
                 }
                 UpdateTouchTransformations(true);
             } else {
                 UpdateTouchTransformations(false);
             }
 
-            boolean ok = m_MinitouchSocket.isConnected();
+            boolean ok = minitouchSocket.isConnected();
 
             int action = event.getActionMasked();
             for (int i = 0; i < event.getPointerCount() && ok; i++) {
@@ -984,23 +955,23 @@ public class MainCarActivity extends CarActivity
                 switch (action) {
                     case ACTION_DOWN:
                     case ACTION_POINTER_DOWN:
-                        ok = ok && m_MinitouchSocket.TouchDown(id, rx, ry, pressure);
+                        ok = ok && minitouchSocket.touchDown(id, rx, ry, pressure);
                         break;
                     case ACTION_MOVE:
-                        ok = ok && m_MinitouchSocket.TouchMove(id, rx, ry, pressure);
+                        ok = ok && minitouchSocket.touchMove(id, rx, ry, pressure);
                         break;
                     case ACTION_UP:
                     case ACTION_CANCEL:
-                        ok = ok && m_MinitouchSocket.TouchUpAll();
+                        ok = ok && minitouchSocket.touchUpAll();
                         break;
                     case ACTION_POINTER_UP:
-                        ok = ok && m_MinitouchSocket.TouchUp(id);
+                        ok = ok && minitouchSocket.touchUp(id);
                         break;
                 }
             }
 
             if (ok) {
-                m_MinitouchSocket.TouchCommit();
+                minitouchSocket.touchCommit();
             }
         }
 
@@ -1124,9 +1095,5 @@ public class MainCarActivity extends CarActivity
         editor.putString("m_AppFav4", m_AppFav4);
         editor.putString("m_AppFav5", m_AppFav5);
         editor.apply();
-    }
-
-    private void shellExec(String cmd) {
-        new ShellAsyncTask().executeOnExecutor(m_ShellExecutor, "setenforce 0; " + cmd + "; setenforce 1");
     }
 }

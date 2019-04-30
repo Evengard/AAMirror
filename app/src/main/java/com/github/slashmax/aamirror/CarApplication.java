@@ -38,6 +38,13 @@ public class CarApplication extends Application {
     }
 
     @Override
+    public void onTerminate() {
+        Log.d(TAG, "onTerminate");
+        Shell.close();
+        super.onTerminate();
+    }
+
+    @Override
     public void onConfigurationChanged(Configuration newConfig) {
         Log.d(TAG, "onConfigurationChanged: " + (newConfig != null ? newConfig.toString() : "null"));
         super.onConfigurationChanged(newConfig);
