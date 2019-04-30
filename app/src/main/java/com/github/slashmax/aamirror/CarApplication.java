@@ -40,6 +40,9 @@ public class CarApplication extends Application {
     @Override
     public void onTerminate() {
         Log.d(TAG, "onTerminate");
+
+        Shell.exec("wm size reset");
+
         Shell.close();
         super.onTerminate();
     }
