@@ -14,6 +14,8 @@ public class MinitouchSocket {
     private static final String TAG = "MinitouchSocket";
     private static final String DEFAULT_SOCKET_NAME = "minitouch";
 
+    private static MinitouchSocket instance;
+
     private LocalSocket m_SocketLocal;
     private Socket m_SocketTcp;
     private OutputStream m_Output;
@@ -23,7 +25,7 @@ public class MinitouchSocket {
     private double MaxX;
     private double MaxY;
     private double MaxPressure;
-    private int Pid;
+    private int pid;
 
     private double m_ProjectionOffsetX;
     private double m_ProjectionOffsetY;
@@ -31,6 +33,17 @@ public class MinitouchSocket {
     private double m_ProjectionHeight;
     private double m_TouchXScale;
     private double m_TouchYScale;
+
+    private MinitouchSocket() {
+        super();
+    }
+
+    static MinitouchSocket getInstance() {
+        if (instance == null) {
+            instance = new MinitouchSocket();
+        }
+        return instance;
+    }
 
     boolean connect(boolean local) {
         Log.d(TAG, "connect");
@@ -126,15 +139,15 @@ public class MinitouchSocket {
     }
 
     int getPid() {
-        Log.d(TAG, "getPid: " + Pid);
-        return Pid;
+        Log.d(TAG, "getPid: " + pid);
+        return pid;
     }
 
     private boolean inputReadParams(InputStream stream) {
         Log.d(TAG, "inputReadParams");
         byte[] data_buffer = new byte[128];
 
-        Pid = 0;
+        pid = 0;
 
         try {
             if (stream.read(data_buffer) == -1) {
@@ -167,14 +180,14 @@ public class MinitouchSocket {
         }
         String[] pid_line = lines[2].split(" ");
         if (pid_line.length == 2) {
-            Pid = Integer.parseInt(pid_line[1]);
+            pid = Integer.parseInt(pid_line[1]);
         }
 
-        Log.d(TAG, "inputReadParams: pid " + Pid);
+        Log.d(TAG, "inputReadParams: pid " + pid);
         return true;
     }
 
-    private boolean OutputWrite(String command) {
+    private boolean outputWrite(String command) {
         if (m_Output == null) {
             return false;
         }
@@ -188,11 +201,11 @@ public class MinitouchSocket {
         return ok;
     }
 
-    private boolean ValidateBounds(double x, double y) {
+    private boolean validateBounds(double x, double y) {
         return (x >= 0.0 && x < MaxX && y >= 0.0 && y < MaxY);
     }
 
-    void UpdateTouchTransformations(double screenWidth, double screenHeight, Point displaySize) {
+    void updateTouchTransformations(double screenWidth, double screenHeight, Point displaySize) {
         double displayWidth = displaySize.x;
         double displayHeight = displaySize.y;
         double factX = displayWidth / screenWidth;
@@ -210,47 +223,47 @@ public class MinitouchSocket {
         m_TouchYScale = MaxY / displayHeight;
     }
 
-    boolean TouchDown(int id, double x, double y, double pressure) {
+    boolean touchDown(int id, double x, double y, double pressure) {
         x = (m_ProjectionOffsetX + x * m_ProjectionWidth) * m_TouchXScale;
         y = (m_ProjectionOffsetY + y * m_ProjectionHeight) * m_TouchYScale;
 
-        if (!ValidateBounds(x, y)) {
+        if (!validateBounds(x, y)) {
             return true;
         }
 
         pressure = pressure * MaxPressure;
-        return OutputWrite(String.format("d %d %d %d %d\n", id, (int) x, (int) y, (int) pressure));
+        return outputWrite(String.format("d %d %d %d %d\n", id, (int) x, (int) y, (int) pressure));
     }
 
-    boolean TouchMove(int id, double x, double y, double pressure) {
+    boolean touchMove(int id, double x, double y, double pressure) {
         x = (m_ProjectionOffsetX + x * m_ProjectionWidth) * m_TouchXScale;
         y = (m_ProjectionOffsetY + y * m_ProjectionHeight) * m_TouchYScale;
 
-        if (!ValidateBounds(x, y)) {
+        if (!validateBounds(x, y)) {
             return true;
         }
 
         pressure = pressure * MaxPressure;
-        return OutputWrite(String.format("m %d %d %d %d\n", id, (int) x, (int) y, (int) pressure));
+        return outputWrite(String.format("m %d %d %d %d\n", id, (int) x, (int) y, (int) pressure));
     }
 
-    boolean TouchUp(int id) {
-        return OutputWrite(String.format("u %d\n", id));
+    boolean touchUp(int id) {
+        return outputWrite(String.format("u %d\n", id));
     }
 
-    boolean TouchUpAll() {
+    boolean touchUpAll() {
         boolean ok = true;
         for (int i = 0; i < MaxContact; i++) {
-            ok = ok && TouchUp(i);
+            ok = ok && touchUp(i);
         }
         return ok;
     }
 
-    boolean TouchCommit() {
-        return OutputWrite("c\n");
+    boolean touchCommit() {
+        return outputWrite("c\n");
     }
 
-    public boolean TouchReset() {
-        return OutputWrite("r\n");
+    public boolean touchReset() {
+        return outputWrite("r\n");
     }
 }
