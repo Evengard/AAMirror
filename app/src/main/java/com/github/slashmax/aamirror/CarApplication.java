@@ -26,6 +26,8 @@ public class CarApplication extends Application {
         Log.d(TAG, "onCreate");
         super.onCreate();
 
+        this.resetScreenSize();
+
         m_WindowManager = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
         UpdateScreenSizeAndRotation();
         UpdateDisplaySize();
@@ -41,7 +43,7 @@ public class CarApplication extends Application {
     public void onTerminate() {
         Log.d(TAG, "onTerminate");
 
-        Shell.exec("wm size reset");
+        this.resetScreenSize();
 
         Shell.close();
         super.onTerminate();
@@ -84,5 +86,9 @@ public class CarApplication extends Application {
             DisplaySize.y = ScreenSize.x;
         }
         Log.d(TAG, "UpdateDisplaySize: " + DisplaySize);
+    }
+
+    private void resetScreenSize() {
+        Shell.exec("wm size reset");
     }
 }
