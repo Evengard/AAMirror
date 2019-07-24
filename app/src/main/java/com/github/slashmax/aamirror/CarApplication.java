@@ -1,7 +1,9 @@
 package com.github.slashmax.aamirror;
 
+import android.car.media.CarAudioManager;
 import android.content.res.Configuration;
 import android.graphics.Point;
+import android.support.car.Car;
 import android.util.Log;
 import android.view.OrientationEventListener;
 import android.view.WindowManager;
@@ -86,4 +88,21 @@ public class CarApplication extends Application
         }
         Log.d(TAG, "UpdateDisplaySize: " + DisplaySize);
     }
+
+    public static void GetCarAudioManager(Car car)
+    {
+        try {
+            CarAudioManager carAM = (CarAudioManager) car.getCarManager(CarAudioManager.class);
+            String[] sources = carAM.getExternalSources();
+            for(String source : sources)
+            {
+                Log.d(TAG, "ExternalSources: " + source);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.d(TAG, e.toString());
+        }
+    }
+
 }

@@ -6,7 +6,7 @@ import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.provider.Settings;
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 import android.util.Log;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
@@ -39,8 +39,7 @@ public class OrientationService extends Service
     public static final int ROTATION_270    = android.view.Surface.ROTATION_270;
 
     private static final int ANDROID_OREO = 26;
-    static final int TYPE_SYSTEM_OVERLAY = Build.VERSION.SDK_INT < ANDROID_OREO ?
-            WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+    static final int TYPE_SYSTEM_OVERLAY = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
 
     private int             m_AutoRotation;
     private int             m_UserRotation;

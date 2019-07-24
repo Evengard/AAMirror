@@ -1,16 +1,24 @@
 package com.github.slashmax.aamirror;
 
+
 import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
+import android.media.MediaRecorder;
+import android.media.MediaRouter;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
@@ -18,17 +26,21 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Message;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
-import android.support.annotation.ColorInt;
-import android.support.annotation.ColorRes;
-import android.support.annotation.Nullable;
+import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
+import androidx.annotation.Nullable;
 import android.support.car.Car;
+
+import androidx.core.hardware.display.DisplayManagerCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+
 import android.support.car.CarConnectionCallback;
-import android.support.car.media.CarAudioManager;
-import android.support.v4.widget.DrawerLayout;
+import android.support.car.CarNotConnectedException;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -43,22 +55,41 @@ import com.google.android.apps.auto.sdk.CarActivity;
 import com.google.android.apps.auto.sdk.CarUiController;
 import com.google.android.apps.auto.sdk.DayNightStyle;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Dictionary;
+import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import eu.chainfire.libsuperuser.Shell;
 
 import static android.content.Intent.ACTION_SCREEN_OFF;
 import static android.content.Intent.ACTION_SCREEN_ON;
 import static android.content.Intent.ACTION_USER_PRESENT;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY;
+import static android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
 import static android.media.AudioManager.AUDIOFOCUS_GAIN;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK;
+import static android.media.AudioManager.AUDIOFOCUS_LOSS;
+import static android.media.AudioManager.AUDIOFOCUS_NONE;
+import static android.media.AudioManager.AUDIOFOCUS_REQUEST_FAILED;
+import static android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
 import static android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP;
 import static android.os.PowerManager.ON_AFTER_RELEASE;
-import static android.os.PowerManager.SCREEN_DIM_WAKE_LOCK;
 import static android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION;
 import static android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS;
+//import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_DEFAULT;
+//import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_NOTIFICATION;
 import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_DEFAULT;
-import static android.support.v4.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED;
-import static android.support.v4.widget.DrawerLayout.LOCK_MODE_UNLOCKED;
+import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_MAX;
+import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_MUSIC;
+import static androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED;
+import static androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED;
 import static android.view.MotionEvent.ACTION_CANCEL;
 import static android.view.MotionEvent.ACTION_DOWN;
 import static android.view.MotionEvent.ACTION_MOVE;
@@ -69,6 +100,8 @@ import static android.view.Surface.ROTATION_0;
 import static android.view.Surface.ROTATION_180;
 import static android.view.Surface.ROTATION_270;
 import static android.view.Surface.ROTATION_90;
+
+import android.support.car.media.CarAudioManager;
 
 public class MainCarActivity extends CarActivity
         implements Handler.Callback,
@@ -85,6 +118,9 @@ public class MainCarActivity extends CarActivity
     private static final int            ACTION_APP_FAV_3    = 3;
     private static final int            ACTION_APP_FAV_4    = 4;
     private static final int            ACTION_APP_FAV_5    = 5;
+
+    /* Redefined because of deprecation warning */
+    private static final int            SCREEN_DIM_WAKE_LOCK = 6;
 
     private String                      m_AppFav1;
     private String                      m_AppFav2;
@@ -103,7 +139,7 @@ public class MainCarActivity extends CarActivity
     private MinitouchAsyncTask          m_MinitouchTask;
 
     private ShellDirectExecutor         m_ShellExecutor;
-    private static Shell.Interactive    m_Shell;
+    private static Shell.Threaded       m_Shell;
 
     private UnlockReceiver              m_UnlockReceiver;
     private Handler                     m_RequestHandler;
@@ -130,6 +166,13 @@ public class MainCarActivity extends CarActivity
     private double                      m_ProjectionOffsetY;
     private double                      m_ProjectionWidth;
     private double                      m_ProjectionHeight;
+
+    private AudioAttributes currentCarFocusAttributes;
+    private AudioManager.OnAudioFocusChangeListener currentCarFocusListener;
+
+    private AudioFocusRequest dummyPhoneFocus;
+
+    private boolean focusLost = true;
 
     private class MinitouchAsyncTask extends AsyncTask<Void, Void, Void>
     {
@@ -256,7 +299,7 @@ public class MainCarActivity extends CarActivity
 
         PowerManager powerManager = (PowerManager)getSystemService(Context.POWER_SERVICE);
         if (powerManager != null)
-            m_WakeLock = powerManager.newWakeLock(SCREEN_DIM_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP, "AAMirrorWakeLock");
+            m_WakeLock = powerManager.newWakeLock(SCREEN_DIM_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP, "AAMirror:WakeLock");
 
         m_DrawerLayout = (DrawerLayout)findViewById(R.id.m_DrawerLayout);
         m_TaskBarDrawer = (LinearLayout)findViewById(R.id.m_TaskBarDrawer);
@@ -284,26 +327,32 @@ public class MainCarActivity extends CarActivity
         if (m_HasRoot)
         {
             m_MinitouchTask.execute();
-            m_Shell = new Shell.Builder().useSU().open();
+            m_Shell = new Shell.Builder().useSU().openThreaded();
         }
 
         m_Car = Car.createCar(this, new CarConnectionCallback()
         {
             @Override
-            public void onConnected(Car car)
-            {
+            public void onConnected(Car car) {
                 Log.d(TAG, "onConnected");
                 RequestAudioFocus();
             }
 
             @Override
-            public void onDisconnected(Car car)
-            {
+            public void onDisconnected(Car car) {
                 Log.d(TAG, "onDisconnected");
                 AbandonAudioFocus();
             }
+
         });
         m_Car.connect();
+        CarAudioManager am = null;
+        try {
+            am = (CarAudioManager)m_Car.getCarManager(Car.AUDIO_SERVICE);
+            boolean muted = am.isMediaMuted();
+        } catch (CarNotConnectedException e) {
+            e.printStackTrace();
+        }
 
         InitButtonsActions();
         LoadSharedPreferences();
@@ -416,6 +465,17 @@ public class MainCarActivity extends CarActivity
         {
             startScreenCapture();
             SetScreenSize();
+
+            // Rerequest focus if lost
+            //AbandonAudioFocus();
+
+
+            /*StartSoundManagerService();
+            StopSoundManagerService();*/
+
+            RequestAudioFocus();
+
+
         }
     }
 
@@ -442,10 +502,7 @@ public class MainCarActivity extends CarActivity
     @ColorInt
     private int getColorCompat(@ColorRes int id)
     {
-        if (Build.VERSION.SDK_INT >= 23)
-            return getColor(id);
-        else
-            return getResources().getColor(id);
+        return getColor(id);
     }
 
     private void UpdateConfiguration(Configuration configuration)
@@ -911,6 +968,7 @@ public class MainCarActivity extends CarActivity
         c().getWindowManager().getDefaultDisplay().getMetrics(metrics);
         int ScreenDensity = metrics.densityDpi;
 
+        DisplayManager displayManager = (DisplayManager)getSystemService(Context.DISPLAY_SERVICE);
         MediaProjectionManager  mediaProjectionManager = (MediaProjectionManager)getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         if (mediaProjectionManager != null)
             m_MediaProjection = mediaProjectionManager.getMediaProjection(m_ProjectionCode, m_ProjectionIntent);
@@ -928,7 +986,7 @@ public class MainCarActivity extends CarActivity
             {
                 m_VirtualDisplay = m_MediaProjection.createVirtualDisplay("ScreenCapture",
                         c_width, c_height, ScreenDensity,
-                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | VIRTUAL_DISPLAY_FLAG_PUBLIC,
                         m_Surface, null, null);
             }
         }
@@ -1126,11 +1184,72 @@ public class MainCarActivity extends CarActivity
         if (!getDefaultSharedPreferences("request_audio_focus_on_connect", false))
             return;
 
-        Log.d(TAG, "RequestAudioFocus");
         try
         {
-            CarAudioManager carAM = m_Car.getCarManager(CarAudioManager.class);
-            carAM.requestAudioFocus(null, carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_DEFAULT), AUDIOFOCUS_GAIN, 0);
+            final CarAudioManager carAM = m_Car.getCarManager(CarAudioManager.class);
+
+            Log.d(TAG, "RequestAudioFocus");
+
+
+            currentCarFocusListener = new AudioManager.OnAudioFocusChangeListener() {
+                @Override
+                public void onAudioFocusChange(int focus) {
+                    Log.d(TAG, "CarAudioFocusChange: " + Integer.toString(focus));
+                    try {
+                        Log.d(TAG, "CarAudioFocusIsMuted: " + Boolean.toString(carAM.isMediaMuted()));
+                    }
+                    catch (Exception e)
+                    {
+                        Log.w(TAG, "CarAudioFocusException", e);
+                    }
+
+                    if (focus == AUDIOFOCUS_LOSS)
+                    {
+                        //focusLost = true;
+                        //AbandonAudioFocus();
+                    }
+                    if (focus >= AUDIOFOCUS_GAIN)
+                    {
+                        AbandonAudioFocus();
+                    }
+                }
+            };
+            currentCarFocusAttributes = carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_MUSIC);
+
+            // Black magic begins here
+            HashMap<String, Integer> focusDump = GetAudioDump();
+            // First of all, we check if we got any head unit focus alongside with a simple GAIN request
+            if (focusDump.containsKey("com.google.android.gms")
+                    && (focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN_TRANSIENT
+                        || focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN)
+                    && focusDump.containsValue(AUDIOFOCUS_GAIN))
+            {
+                // In case if we got a dangling GAIN request which was overriden
+                // by the GAIN_TRANSIENT from Android Auto, we need first to clear it
+                int res = carAM.requestAudioFocus(currentCarFocusListener, currentCarFocusAttributes, AUDIOFOCUS_GAIN, 0);
+                Log.d(TAG, "focusGrant: " + res);
+                if (res == AUDIOFOCUS_REQUEST_GRANTED)
+                {
+                    AbandonAudioFocus();
+
+                    // We rerequest the AudioDump here to make sure we don't need any followup focus clearings
+                    focusDump = GetAudioDump();
+                }
+            }
+
+            // If after previous focus fixup (or we didn't even went inside it) we still got some focus from Android Auto we will then override it with the GAIN_TRANSIENT
+            if (focusDump.containsKey("com.google.android.gms")
+                    && focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN_TRANSIENT)
+            {
+                int res = carAM.requestAudioFocus(currentCarFocusListener, currentCarFocusAttributes, AUDIOFOCUS_GAIN_TRANSIENT, 0);
+                Log.d(TAG, "focusGrant: " + res);
+                if (res == AUDIOFOCUS_REQUEST_GRANTED)
+                {
+                    AbandonAudioFocus();
+                    focusDump = GetAudioDump();
+                }
+            }
+
         }
         catch (Exception e)
         {
@@ -1138,13 +1257,16 @@ public class MainCarActivity extends CarActivity
         }
     }
 
+
+
     private void AbandonAudioFocus()
     {
         Log.d(TAG, "AbandonAudioFocus");
         try
         {
             CarAudioManager carAM = m_Car.getCarManager(CarAudioManager.class);
-            carAM.abandonAudioFocus(null, carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_DEFAULT));
+            carAM.abandonAudioFocus(currentCarFocusListener, currentCarFocusAttributes);
+            //focusLost = true;
         }
         catch (Exception e)
         {
@@ -1201,5 +1323,62 @@ public class MainCarActivity extends CarActivity
         editor.putString("m_AppFav4", m_AppFav4);
         editor.putString("m_AppFav5", m_AppFav5);
         editor.apply();
+    }
+
+    private HashMap<String, Integer> GetAudioDump()
+    {
+        HashMap<String, Integer> focusInfo = new HashMap<String, Integer>();
+        final List<String>[] audioDumpA = new List[]{null};
+
+        m_Shell.addCommand("dumpsys audio", 0, new Shell.OnCommandResultListener() {
+            @Override
+            public void onCommandResult(int commandCode, int exitCode, List<String> output) {
+                audioDumpA[0] = output;
+            }
+        });
+        m_Shell.waitForIdle();
+        List<String> audioDump = audioDumpA[0];
+        Boolean isInsideFocusStack = false;
+        for(String info : audioDump)
+        {
+            if (isInsideFocusStack)
+            {
+                if (info.isEmpty())
+                {
+                    isInsideFocusStack = false;
+                    break;
+                }
+                Pattern pattern = Pattern.compile("-- pack: (.+?) --(.+) -- gain: (.+?) --");
+                Matcher matcher = pattern.matcher(info);
+                if (matcher.find())
+                {
+                    String packName = matcher.group(1);
+                    String gainStr = matcher.group(3);
+                    int gain = AUDIOFOCUS_NONE;
+                    switch(gainStr)
+                    {
+                        case "GAIN":
+                            gain = AUDIOFOCUS_GAIN;
+                            break;
+                        case "GAIN_TRANSIENT":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT;
+                            break;
+                        case "GAIN_TRANSIENT_MAY_DUCK":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK;
+                            break;
+                        case "GAIN_TRANSIENT_EXCLUSIVE":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE;
+                            break;
+                    }
+                    focusInfo.put(packName, gain);
+                }
+            }
+            if (info.startsWith("Audio Focus stack entries"))
+            {
+                isInsideFocusStack = true;
+            }
+        }
+
+        return focusInfo;
     }
 }

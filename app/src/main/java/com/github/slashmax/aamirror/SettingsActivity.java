@@ -2,13 +2,13 @@ package com.github.slashmax.aamirror;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.preference.EditTextPreference;
-import android.preference.ListPreference;
-import android.preference.Preference;
-import android.preference.PreferenceFragment;
-import android.preference.PreferenceManager;
-import android.support.annotation.Nullable;
-import android.support.v7.app.ActionBar;
+import androidx.preference.EditTextPreference;
+import androidx.preference.ListPreference;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragment;
+import androidx.preference.PreferenceManager;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.ActionBar;
 import android.util.Log;
 import android.view.MenuItem;
 
@@ -44,9 +44,9 @@ public class SettingsActivity extends AppCompatPreferenceActivity
     {
 
         @Override
-        public void onCreate(@Nullable Bundle savedInstanceState)
+        public void onCreatePreferences(@Nullable Bundle savedInstanceState, String rootKey)
         {
-            super.onCreate(savedInstanceState);
+            //super.onCreate(savedInstanceState);
             addPreferencesFromResource(R.xml.pref_screen_settings);
             setHasOptionsMenu(true);
 
@@ -73,9 +73,9 @@ public class SettingsActivity extends AppCompatPreferenceActivity
     {
 
         @Override
-        public void onCreate(@Nullable Bundle savedInstanceState)
+        public void onCreatePreferences(@Nullable Bundle savedInstanceState, String rootKey)
         {
-            super.onCreate(savedInstanceState);
+            //super.onCreate(savedInstanceState);
             addPreferencesFromResource(R.xml.pref_navigation_settings);
             setHasOptionsMenu(true);
         }
@@ -97,9 +97,9 @@ public class SettingsActivity extends AppCompatPreferenceActivity
     {
 
         @Override
-        public void onCreate(@Nullable Bundle savedInstanceState)
+        public void onCreatePreferences(@Nullable Bundle savedInstanceState, String rootKey)
         {
-            super.onCreate(savedInstanceState);
+            //super.onCreate(savedInstanceState);
             addPreferencesFromResource(R.xml.pref_audio_settings);
             setHasOptionsMenu(true);
         }
@@ -115,15 +115,16 @@ public class SettingsActivity extends AppCompatPreferenceActivity
             }
             return super.onOptionsItemSelected(item);
         }
+
     }
 
     public static class FavouritesPreferenceFragment extends PreferenceFragment
     {
 
         @Override
-        public void onCreate(@Nullable Bundle savedInstanceState)
+        public void onCreatePreferences(@Nullable Bundle savedInstanceState, String rootKey)
         {
-            super.onCreate(savedInstanceState);
+            //super.onCreate(savedInstanceState);
             addPreferencesFromResource(R.xml.pref_fav_settings);
             setHasOptionsMenu(true);
         }
