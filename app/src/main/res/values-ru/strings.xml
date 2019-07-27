@@ -26,6 +26,8 @@
     <string name="open_on_two_fingers">Открывать по двум пальцам</string>
     <string name="disable_side_swipe">Отключить боковой свайп</string>
     <string name="request_audio_focus">Захват аудиофокуса</string>
+    <string name="alternative_audio_focus">Альтернативный режим захвата аудиофокуса</string>
+    <string name="alternative_audio_focus_summary">Необходим root\nИспользуется на некоторых ГУ\nнапр. Skoda Swing</string>
 
     <string name="adding_to_white_list">Добавление в белый список…</string>
     <string name="adding_trigger">Добавление триггера…</string>

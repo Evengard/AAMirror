@@ -8,8 +8,9 @@
     <SwitchPreference
         android:defaultValue="false"
         android:key="alternative_audio_focus"
-        android:title="Alternative audio focus request"
-        android:summary="Root required, used on Skoda Swing"
+        android:title="@string/alternative_audio_focus"
+        android:summary="@string/alternative_audio_focus_summary"
         android:singleLineTitle="false"
-        android:dependency="request_audio_focus_on_connect" />
+        android:dependency="request_audio_focus_on_connect"
+        android:disableDependentsState="true" />
 </PreferenceScreen>

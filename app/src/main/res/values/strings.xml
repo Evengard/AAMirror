@@ -27,6 +27,8 @@
     <string name="open_on_two_fingers">Open on two finger tap</string>
     <string name="disable_side_swipe">Disable side swipe</string>
     <string name="request_audio_focus">Request audio focus on connect</string>
+    <string name="alternative_audio_focus">Alternative audio focus request</string>
+    <string name="alternative_audio_focus_summary">Root required\nUsed on some head units\neg. Skoda Swing</string>
 
     <string name="adding_to_white_list">Adding to white list…</string>
     <string name="adding_trigger">Adding trigger…</string>
