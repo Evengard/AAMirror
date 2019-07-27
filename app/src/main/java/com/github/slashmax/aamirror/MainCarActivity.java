@@ -11,6 +11,8 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
@@ -29,6 +31,7 @@ import androidx.drawerlayout.widget.DrawerLayout;
 
 import android.support.car.Car;
 import android.support.car.CarConnectionCallback;
+import android.support.car.CarNotConnectedException;
 import android.support.car.media.CarAudioManager;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -44,15 +47,26 @@ import com.google.android.apps.auto.sdk.CarActivity;
 import com.google.android.apps.auto.sdk.CarUiController;
 import com.google.android.apps.auto.sdk.DayNightStyle;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import static android.content.Intent.ACTION_SCREEN_OFF;
 import static android.content.Intent.ACTION_SCREEN_ON;
 import static android.content.Intent.ACTION_USER_PRESENT;
 import static android.media.AudioManager.AUDIOFOCUS_GAIN;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE;
+import static android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK;
+import static android.media.AudioManager.AUDIOFOCUS_NONE;
+import static android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
 import static android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP;
 import static android.os.PowerManager.ON_AFTER_RELEASE;
 import static android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION;
 import static android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS;
 import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_DEFAULT;
+import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_MUSIC;
 import static android.view.MotionEvent.ACTION_CANCEL;
 import static android.view.MotionEvent.ACTION_DOWN;
 import static android.view.MotionEvent.ACTION_MOVE;
@@ -122,6 +136,9 @@ public class MainCarActivity extends CarActivity
     private double m_ProjectionOffsetY;
     private double m_ProjectionWidth;
     private double m_ProjectionHeight;
+
+    private AudioAttributes currentCarFocusAttributes;
+    private AudioManager.OnAudioFocusChangeListener currentCarFocusListener;
 
     private class MinitouchAsyncTask extends AsyncTask<Void, Void, Void> {
         @Override
@@ -383,6 +400,10 @@ public class MainCarActivity extends CarActivity
         if (focus) {
             SetScreenSize();
             startScreenCapture();
+
+            if (getDefaultSharedPreferences("alternative_audio_focus", false)) {
+                RequestAudioFocus();
+            }
         }
     }
 
@@ -1051,20 +1072,40 @@ public class MainCarActivity extends CarActivity
         Log.d(TAG, "RequestAudioFocus");
         try {
             CarAudioManager carAM = m_Car.getCarManager(CarAudioManager.class);
-            carAM.requestAudioFocus(null, carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_DEFAULT), AUDIOFOCUS_GAIN, 0);
+
+            if (getDefaultSharedPreferences("alternative_audio_focus", false)) {
+                AlternateRequestAudioFocus(carAM);
+            }
+            else {
+                currentCarFocusAttributes = carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_DEFAULT);
+                currentCarFocusListener = null;
+                carAM.requestAudioFocus(currentCarFocusListener, currentCarFocusAttributes, AUDIOFOCUS_GAIN, 0);
+            }
         } catch (Exception e) {
             Log.d(TAG, "RequestAudioFocus exception: " + e.toString());
         }
     }
 
-    private void AbandonAudioFocus() {
-        Log.d(TAG, "AbandonAudioFocus");
+    private void AbandonAudioFocus()
+    {
         try {
-            CarAudioManager carAM = m_Car.getCarManager(CarAudioManager.class);
-            carAM.abandonAudioFocus(null, carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_DEFAULT));
-        } catch (Exception e) {
+            AbandonAudioFocus(m_Car.getCarManager(CarAudioManager.class));
+        }
+        catch (Exception e) {
             Log.d(TAG, "AbandonAudioFocus exception: " + e.toString());
         }
+    }
+
+    private void AbandonAudioFocus(CarAudioManager carAM)
+    {
+        Log.d(TAG, "AbandonAudioFocus");
+        if (currentCarFocusAttributes == null)
+        {
+            return;
+        }
+        carAM.abandonAudioFocus(currentCarFocusListener, currentCarFocusAttributes);
+        currentCarFocusListener = null;
+        currentCarFocusAttributes = null;
     }
 
     private String getDefaultSharedPreferences(String key, @Nullable String defValue) {
@@ -1108,5 +1149,100 @@ public class MainCarActivity extends CarActivity
         editor.putString("m_AppFav4", m_AppFav4);
         editor.putString("m_AppFav5", m_AppFav5);
         editor.apply();
+    }
+
+    private void AlternateRequestAudioFocus(CarAudioManager carAM) throws CarNotConnectedException
+    {
+        currentCarFocusListener = focus -> {
+            Log.d(TAG, "CarAudioFocusChange: " + Integer.toString(focus));
+            if (focus >= AUDIOFOCUS_GAIN)
+            {
+                AbandonAudioFocus(carAM);
+            }
+        };
+
+        currentCarFocusAttributes = carAM.getAudioAttributesForCarUsage(CAR_AUDIO_USAGE_MUSIC);
+
+        // Black magic begins here
+        HashMap<String, Integer> focusDump = GetAudioDump();
+        // First of all, we check if we got any head unit focus alongside with a simple GAIN request
+        if (focusDump.containsKey("com.google.android.gms")
+                && (focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN_TRANSIENT
+                || focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN)
+                && focusDump.containsValue(AUDIOFOCUS_GAIN))
+        {
+            // In case if we got a dangling GAIN request which was overriden
+            // by the GAIN_TRANSIENT from Android Auto, we need first to clear it
+            int res = carAM.requestAudioFocus(currentCarFocusListener, currentCarFocusAttributes, AUDIOFOCUS_GAIN, 0);
+            Log.d(TAG, "focusGrant: " + res);
+            if (res == AUDIOFOCUS_REQUEST_GRANTED)
+            {
+                AbandonAudioFocus(carAM);
+
+                // We rerequest the AudioDump here to make sure we don't need any followup focus clearings
+                focusDump = GetAudioDump();
+            }
+        }
+
+        // If after previous focus fixup (or we didn't even went inside it) we still got some focus from Android Auto we will then override it with the GAIN_TRANSIENT
+        if (focusDump.containsKey("com.google.android.gms")
+                && focusDump.get("com.google.android.gms") == AUDIOFOCUS_GAIN_TRANSIENT)
+        {
+            int res = carAM.requestAudioFocus(currentCarFocusListener, currentCarFocusAttributes, AUDIOFOCUS_GAIN_TRANSIENT, 0);
+            Log.d(TAG, "focusGrant: " + res);
+            if (res == AUDIOFOCUS_REQUEST_GRANTED)
+            {
+                AbandonAudioFocus(carAM);
+            }
+        }
+
+    }
+
+    private HashMap<String, Integer> GetAudioDump()
+    {
+        HashMap<String, Integer> focusInfo = new HashMap<String, Integer>();
+
+        Boolean isInsideFocusStack = false;
+        for(String info : Shell.exec("dumpsys audio"))
+        {
+            if (isInsideFocusStack)
+            {
+                if (info.isEmpty())
+                {
+                    isInsideFocusStack = false;
+                    break;
+                }
+                Pattern pattern = Pattern.compile("-- pack: (.+?) --(.+) -- gain: (.+?) --");
+                Matcher matcher = pattern.matcher(info);
+                if (matcher.find())
+                {
+                    String packName = matcher.group(1);
+                    String gainStr = matcher.group(3);
+                    int gain = AUDIOFOCUS_NONE;
+                    switch(gainStr)
+                    {
+                        case "GAIN":
+                            gain = AUDIOFOCUS_GAIN;
+                            break;
+                        case "GAIN_TRANSIENT":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT;
+                            break;
+                        case "GAIN_TRANSIENT_MAY_DUCK":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK;
+                            break;
+                        case "GAIN_TRANSIENT_EXCLUSIVE":
+                            gain = AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE;
+                            break;
+                    }
+                    focusInfo.put(packName, gain);
+                }
+            }
+            if (info.startsWith("Audio Focus stack entries"))
+            {
+                isInsideFocusStack = true;
+            }
+        }
+
+        return focusInfo;
     }
 }
