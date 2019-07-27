@@ -5,7 +5,7 @@ import android.content.res.Resources;
 import java.util.ArrayList;
 import java.util.List;
 
-import eu.chainfire.libsuperuser.Shell;
+//import eu.chainfire.libsuperuser.Shell;
 
 class Unlocker {
     private static final String OUR_PACKAGE = Unlocker.class.getPackage().getName();
@@ -31,7 +31,7 @@ class Unlocker {
 
         restartServices(resources, builder);
 
-        return Shell.run("su", builder.toArray(), null, true);
+        return Shell.exec(builder.toArray(), false);
     }
 
     static List<String> relock(Resources resources) {
@@ -40,7 +40,7 @@ class Unlocker {
         cleanUp(resources, builder);
         restartServices(resources, builder);
 
-        return Shell.run("su", builder.toArray(), null, true);
+        return Shell.exec(builder.toArray(), false);
     }
 
     static boolean isLocked() {
@@ -51,7 +51,7 @@ class Unlocker {
         builder.sql("SELECT COUNT() FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'Flags' AND name = '%1$s'", TRIGGER_NAME);
         builder.sql("SELECT COUNT() FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'Flags' AND name != '%1$s'", TRIGGER_NAME);
 
-        List<String> results = Shell.SU.run(builder.toList());
+        List<String> results = Shell.exec(builder.toArray(), false);
 
         if (results.size() < 1) {
             return true;
@@ -92,7 +92,7 @@ class Unlocker {
     private static List<String> getTriggerList() {
         CommandBuilder builder = new CommandBuilder();
         builder.sql("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'Flags'");
-        return Shell.SU.run(builder.toList());
+        return Shell.exec(builder.toArray(), false);
     }
 
     private static void dropTriggers(Resources resources, CommandBuilder builder, List<String> triggers) {

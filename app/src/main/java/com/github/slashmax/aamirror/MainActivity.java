@@ -5,8 +5,8 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -16,8 +16,6 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import eu.chainfire.libsuperuser.Shell;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
@@ -130,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
     private class IsLockedDetector extends AsyncTask<Void, Void, Boolean> {
         @Override
         protected Boolean doInBackground(Void... voids) {
-            if (!Shell.SU.available()) {
+            if (!Shell.isAvailable()) {
                 ((TextView) findViewById(R.id.operationLog)).setText(R.string.no_root_detected);
                 MainActivity.this.unlockButton.setEnabled(false);
                 MainActivity.this.relockButton.setEnabled(false);

@@ -7,7 +7,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.List;
 
-import eu.chainfire.libsuperuser.Shell;
+//import eu.chainfire.libsuperuser.Shell;
 
 class MinitouchDaemon {
     private static final String TAG = "MinitouchDaemon";
@@ -27,14 +27,14 @@ class MinitouchDaemon {
             return;
         }
 
-        LogShell(Shell.SU.run("chmod 755 " + path));
-        LogShell(Shell.SU.run(path));
+        LogShell(Shell.exec("chmod 755 " + path, false));
+        LogShell(Shell.exec(path, false));
     }
 
     void stop(int pid) {
         Log.d(TAG, "stop: " + pid);
         if (pid != 0) {
-            LogShell(Shell.SU.run("kill " + pid));
+            LogShell(Shell.exec("kill " + pid, false));
         }
     }
 
@@ -68,7 +68,7 @@ class MinitouchDaemon {
 
     private String detectAbi() {
         Log.d(TAG, "detectAbi");
-        List<String> result = Shell.SH.run("getprop ro.product.cpu.abi");
+        List<String> result = Shell.exec("getprop ro.product.cpu.abi", false);
         LogShell(result);
 
         if (result != null && !result.isEmpty()) {

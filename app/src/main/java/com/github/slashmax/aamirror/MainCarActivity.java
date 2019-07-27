@@ -22,13 +22,14 @@ import android.os.Message;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
-import android.support.annotation.ColorInt;
-import android.support.annotation.ColorRes;
-import android.support.annotation.Nullable;
+import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
+import androidx.annotation.Nullable;
+import androidx.drawerlayout.widget.DrawerLayout;
+
 import android.support.car.Car;
 import android.support.car.CarConnectionCallback;
 import android.support.car.media.CarAudioManager;
-import android.support.v4.widget.DrawerLayout;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -49,12 +50,9 @@ import static android.content.Intent.ACTION_USER_PRESENT;
 import static android.media.AudioManager.AUDIOFOCUS_GAIN;
 import static android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP;
 import static android.os.PowerManager.ON_AFTER_RELEASE;
-import static android.os.PowerManager.SCREEN_DIM_WAKE_LOCK;
 import static android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION;
 import static android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS;
 import static android.support.car.media.CarAudioManager.CAR_AUDIO_USAGE_DEFAULT;
-import static android.support.v4.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED;
-import static android.support.v4.widget.DrawerLayout.LOCK_MODE_UNLOCKED;
 import static android.view.MotionEvent.ACTION_CANCEL;
 import static android.view.MotionEvent.ACTION_DOWN;
 import static android.view.MotionEvent.ACTION_MOVE;
@@ -65,6 +63,8 @@ import static android.view.Surface.ROTATION_0;
 import static android.view.Surface.ROTATION_180;
 import static android.view.Surface.ROTATION_270;
 import static android.view.Surface.ROTATION_90;
+import static androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED;
+import static androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED;
 
 public class MainCarActivity extends CarActivity
         implements Handler.Callback,
@@ -80,6 +80,7 @@ public class MainCarActivity extends CarActivity
     private static final int ACTION_APP_FAV_3 = 3;
     private static final int ACTION_APP_FAV_4 = 4;
     private static final int ACTION_APP_FAV_5 = 5;
+    private static final int SCREEN_DIM_WAKE_LOCK = 6;
 
     private String m_AppFav1;
     private String m_AppFav2;
@@ -219,7 +220,7 @@ public class MainCarActivity extends CarActivity
 
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
-            m_WakeLock = powerManager.newWakeLock(SCREEN_DIM_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP, "AAMirrorWakeLock");
+            m_WakeLock = powerManager.newWakeLock(SCREEN_DIM_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP, "AAMirror:WakeLock");
         }
 
         m_DrawerLayout = (DrawerLayout) findViewById(R.id.m_DrawerLayout);
@@ -243,7 +244,7 @@ public class MainCarActivity extends CarActivity
         UpdateTouchTransformations(true);
 
         m_ScreenResized = false;
-        m_HasRoot = eu.chainfire.libsuperuser.Shell.SU.available();
+        m_HasRoot = Shell.isAvailable();
         if (m_HasRoot) {
             m_MinitouchTask.execute();
         }
@@ -404,6 +405,7 @@ public class MainCarActivity extends CarActivity
     }
 
     @ColorInt
+    @SuppressWarnings("deprecation")
     private int getColorCompat(@ColorRes int id) {
         if (Build.VERSION.SDK_INT >= 23) {
             return getColor(id);
@@ -469,7 +471,18 @@ public class MainCarActivity extends CarActivity
         Log.d(TAG, "IsLocked");
 
         KeyguardManager km = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        return (km != null && km.isDeviceLocked());
+        boolean result = false;
+        if (km != null)
+        {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+                result = km.isDeviceLocked();
+            }
+            else
+            {
+                result = km.isKeyguardLocked();
+            }
+        }
+        return result;
     }
 
     private void startOrientationService() {
