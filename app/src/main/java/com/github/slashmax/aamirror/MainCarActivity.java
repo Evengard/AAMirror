@@ -1153,6 +1153,7 @@ public class MainCarActivity extends CarActivity
 
     private void AlternateRequestAudioFocus(CarAudioManager carAM) throws CarNotConnectedException
     {
+        Log.d(TAG, "AlternateRequestAudioFocus");
         currentCarFocusListener = focus -> {
             Log.d(TAG, "CarAudioFocusChange: " + Integer.toString(focus));
             if (focus >= AUDIOFOCUS_GAIN)
@@ -1203,7 +1204,8 @@ public class MainCarActivity extends CarActivity
         HashMap<String, Integer> focusInfo = new HashMap<String, Integer>();
 
         Boolean isInsideFocusStack = false;
-        for(String info : Shell.exec("dumpsys audio"))
+        List<String> focusData = Shell.exec("dumpsys audio");
+        for(String info : focusData)
         {
             if (isInsideFocusStack)
             {

@@ -80,8 +80,6 @@ public class Shell {
     public static List<String> exec(String[] cmds, boolean withSelinuxOverride)
     {
         List<Entry<String, Boolean>> commands = new ArrayList<Entry<String, Boolean>>();
-        @SuppressWarnings("unchecked")
-        final List<String>[] results = new List[]{new ArrayList<String>(), new ArrayList<String>()};
         for(String cmd : cmds)
         {
             commands.add(getCommandEntry(cmd, true));
@@ -91,10 +89,15 @@ public class Shell {
             commands.add(0, getCommandEntry("setenforce 0", false));
             commands.add(getCommandEntry("setenforce 1", false));
         }
-        exec(commands);
+        List<Entry<List<String>, List<String>>> results = exec(commands);
         List<String> merged = new ArrayList<String>();
-        merged.addAll(results[0]);
-        merged.addAll(results[1]);
+        for(Entry<List<String>, List<String>> entry : results)
+        {
+            List<String> stdout = entry.getKey();
+            List<String> stderr = entry.getValue();
+            merged.addAll(stdout);
+            merged.addAll(stderr);
+        }
         return merged;
     }
 
