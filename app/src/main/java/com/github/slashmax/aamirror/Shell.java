@@ -1,7 +1,8 @@
 package com.github.slashmax.aamirror;
 
-import eu.chainfire.libsuperuser.Shell.OnCommandResultListener2;
-import eu.chainfire.libsuperuser.Shell.OnResult;
+import android.util.Log;
+
+import eu.chainfire.libsuperuser.Shell.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,26 +12,54 @@ import java.util.Map.Entry;
 public class Shell {
     private static final String TAG = "Shell";
 
-    private static eu.chainfire.libsuperuser.Shell.Threaded shell = null;
+    private static PoolWrapper shellPool = null;
+    private static Threaded lastShell = null;
 
+    private static boolean isSelinuxEnforcing = false;
+    private static boolean available = false;
     /*static {
-        InitShell();
+
     }*/
 
-    private synchronized static void InitShell()
+    private static void InitShell()
     {
-        if (shell == null && eu.chainfire.libsuperuser.Shell.SU.available()) {
-            shell = new eu.chainfire.libsuperuser.Shell.Builder().useSU().openThreaded();
+        available = available || SU.available();
+        if (shellPool == null && available) {
+            isSelinuxEnforcing = SU.isSELinuxEnforcing();
+            Pool.setPoolSize(5);
+            shellPool = Pool.SU;
         }
     }
 
     private Shell() {
     }
 
-    public static boolean isAvailable()
+    private static synchronized Threaded getShell() throws ShellDiedException
     {
         InitShell();
-        return shell != null;
+        if (lastShell != null && lastShell.isIdle())
+        {
+            return lastShell;
+        }
+        if (lastShell != null)
+        {
+            lastShell.closeWhenIdle();
+            lastShell = null;
+        }
+        try {
+            lastShell = shellPool.get();
+        } catch (ShellDiedException e) {
+            Log.d(TAG, "Get shell exception: ", e);
+            available = false;
+            throw e;
+        }
+        return lastShell;
+    }
+
+    public static synchronized boolean isAvailable()
+    {
+        InitShell();
+        return available;
     }
 
     public static List<String> exec(String cmd)
@@ -38,9 +67,9 @@ public class Shell {
         return exec(cmd, true);
     }
 
-    private static Entry<String, OnResult> getCommandEntry(String cmd, OnResult callback)
+    private static Entry<String, Boolean> getCommandEntry(String cmd, boolean needsOutput)
     {
-        return new SimpleEntry<String, OnResult>(cmd, callback);
+        return new SimpleEntry<String, Boolean>(cmd, needsOutput);
     }
 
     public static List<String> exec(String cmd, boolean withSelinuxOverride)
@@ -50,21 +79,17 @@ public class Shell {
 
     public static List<String> exec(String[] cmds, boolean withSelinuxOverride)
     {
-        List<Entry<String, OnResult>> commands = new ArrayList<Entry<String, OnResult>>();
+        List<Entry<String, Boolean>> commands = new ArrayList<Entry<String, Boolean>>();
         @SuppressWarnings("unchecked")
         final List<String>[] results = new List[]{new ArrayList<String>(), new ArrayList<String>()};
-        OnResult callback = (OnCommandResultListener2) (commandCode, exitCode, STDOUT, STDERR) -> {
-            results[0].addAll(STDOUT);
-            results[1].addAll(STDERR);
-        };
         for(String cmd : cmds)
         {
-            commands.add(getCommandEntry(cmd, callback));
+            commands.add(getCommandEntry(cmd, true));
         }
-        if (withSelinuxOverride)
+        if (withSelinuxOverride && isSelinuxEnforcing)
         {
-            commands.add(0, getCommandEntry("setenforce 0", null));
-            commands.add(getCommandEntry("setenforce 1", null));
+            commands.add(0, getCommandEntry("setenforce 0", false));
+            commands.add(getCommandEntry("setenforce 1", false));
         }
         exec(commands);
         List<String> merged = new ArrayList<String>();
@@ -73,23 +98,31 @@ public class Shell {
         return merged;
     }
 
-    public static synchronized void exec(List<Entry<String, OnResult>> cmds)
+    public static List<Entry<List<String>, List<String>>> exec(List<Entry<String, Boolean>> cmds)
     {
-        InitShell();
-        shell.waitForIdle();
-        for(Entry<String, OnResult> entry : cmds)
+        List<Entry<List<String>, List<String>>> results = new ArrayList<Entry<List<String>, List<String>>>();
+        try {
+            Threaded shell = getShell();
+            shell.waitForIdle();
+            for (Entry<String, Boolean> entry : cmds) {
+                int exit = -1;
+                String cmd = entry.getKey();
+                boolean needsOutput = entry.getValue();
+                List<String> stdout = needsOutput ? new ArrayList<String>() : null;
+                List<String> stderr = needsOutput ? new ArrayList<String>() : null;
+                exit = shell.run(cmd, stdout, stderr, true);
+                Log.d(TAG, "Shell result: code " + exit + ", cmdline: " + cmd);
+                if (needsOutput) {
+                    Entry<List<String>, List<String>> result = new SimpleEntry<List<String>, List<String>>(stdout, stderr);
+                    results.add(result);
+                }
+            }
+            shell.closeWhenIdle();
+        }
+        catch (Exception e)
         {
-            String cmd = entry.getKey();
-            OnResult callback = entry.getValue();
-            shell.addCommand(cmd, 0, callback);
+            Log.d(TAG, "Shell execution exception: ", e);
         }
-        shell.waitForIdle();
-    }
-
-    public static synchronized void close()
-    {
-        if (shell != null) {
-            shell.close();
-        }
+        return results;
     }
 }

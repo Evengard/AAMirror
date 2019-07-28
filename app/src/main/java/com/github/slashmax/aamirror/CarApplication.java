@@ -45,7 +45,7 @@ public class CarApplication extends Application {
 
         this.resetScreenSize();
 
-        Shell.close();
+        //Shell.close();
         super.onTerminate();
     }
 
